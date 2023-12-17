@@ -84,8 +84,11 @@
     <CudaCompile Include="main.cu" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="create_kd_tree.cuh" />
+    <ClInclude Include="create_scene.cuh" />
     <ClInclude Include="macros.h" />
     <ClInclude Include="math_library.cuh" />
+    <ClInclude Include="mesh_loading.cuh" />
     <ClInclude Include="path_tracing.cuh" />
     <ClInclude Include="camera.cuh" />
     <ClInclude Include="render.cuh" />

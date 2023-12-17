@@ -7,7 +7,7 @@
 
 #include "macros.h"
 #include "math_library.cuh"
-#include "scene.cuh"
+#include "create_scene.cuh"
 #include "camera.cuh"
 #include "screen.cuh"
 #include "render.cuh"
@@ -97,7 +97,7 @@ int main()
 
     Scene scene = create_scene();
 
-    Camera camera = { { 0.0f, 1.0f, -3.0f }, 0, 0, HALF_PI };
+    Camera camera = { { 0.0f, 1.0f, -3.0f }, 0, 0, HALF_PI, 0.02f };
 
 
     int sample_count = 1;
@@ -139,7 +139,7 @@ int main()
             frame_count = 0;
         }
 
-        std::cout << "Samples Per Pixel: " << sample_count << '\n';
+        std::cout << "samples per pixel: " << sample_count << '\n';
     }
 
     glfwTerminate();

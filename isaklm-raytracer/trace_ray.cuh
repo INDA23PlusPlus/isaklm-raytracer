@@ -63,7 +63,10 @@ __device__ Vec3D calculate_barycentric_coordinates(Vec3D point_on_plane, Triangl
 
 __device__ bool intersect_triangle(Ray ray, Triangle triangle, Vec3D* barycentric_coordinates, float* t)
 {
-    float direction_dot_normal = dot(ray.direction, triangle.normal);
+    Vec3D normal = normalize(cross(triangle.p2 - triangle.p1, triangle.p3 - triangle.p1));
+
+
+    float direction_dot_normal = dot(ray.direction, normal);
 
 
     if (direction_dot_normal == 0) // ray is parallell to triangle
@@ -72,10 +75,10 @@ __device__ bool intersect_triangle(Ray ray, Triangle triangle, Vec3D* barycentri
     }
 
 
-    float d = dot(triangle.normal, triangle.p1);
+    float d = dot(normal, triangle.p1);
 
 
-    float s = (d - dot(ray.position, triangle.normal)) / direction_dot_normal;
+    float s = (d - dot(ray.position, normal)) / direction_dot_normal;
 
     if (s < 0.0001f) // no intersection
     {
@@ -100,17 +103,17 @@ __device__ bool intersect_triangle(Ray ray, Triangle triangle, Vec3D* barycentri
     return false;
 }
 
-__device__ bool trace_ray(Ray ray, Scene scene, Sample& sample)
+__device__ bool trace_leaf_node(Ray ray, float max_t, int index_offset, int triangle_count, int* triangle_indicies, Triangle* triangles, Sample& sample)
 {
-	float smallest_t = FLT_MAX;
-	bool hit = false;
+    float smallest_t = max_t;
+    bool hit = false;
 
 
-	for (int i = 0; i < scene.triangle_count; ++i)
-	{
-		Triangle triangle = scene.triangles[i];
+    for (int i = 0; i < triangle_count; ++i)
+    {
+        Triangle triangle = triangles[triangle_indicies[index_offset + i]];
 
-		
+
         Vec3D barycentric_coordinates = ZERO_VEC3D;
         float t = FLT_MAX;
 
@@ -120,14 +123,161 @@ __device__ bool trace_ray(Ray ray, Scene scene, Sample& sample)
 
             sample.material = triangle.material;
             sample.position = barycentric_coordinates.x * triangle.p1 + barycentric_coordinates.y * triangle.p2 + barycentric_coordinates.z * triangle.p3;
-            sample.normal = triangle.normal;
-            sample.tangent = triangle.tangent;
-            sample.bitangent = triangle.bitangent;
+
+            sample.normal = normalize(barycentric_coordinates.x * triangle.n1 + barycentric_coordinates.y * triangle.n2 + barycentric_coordinates.z * triangle.n3);
+            sample.tangent = normalize(cross(sample.normal, triangle.p2 - triangle.p1));
+            sample.bitangent = cross(sample.normal, sample.tangent);
 
             smallest_t = t;
         }
-	}
+    }
 
 
     return hit;
+}
+
+__device__ bool ray_behind_plane(Ray ray, int plane_axis, float plane_offset)
+{
+    if (plane_axis == 0)
+    {
+        return (ray.position.x >= plane_offset);
+    }
+    else if (plane_axis == 1)
+    {
+        return (ray.position.y >= plane_offset);
+    }
+    else
+    {
+        return (ray.position.z >= plane_offset);
+    }
+}
+
+__device__ float intersect_plane(Ray ray, int plane_axis, float plane_offset)
+{
+    if (plane_axis == 0)
+    {
+        float distance = plane_offset - ray.position.x;
+
+        return distance / ray.direction.x;
+    }
+    else if (plane_axis == 1)
+    {
+        float distance = plane_offset - ray.position.y;
+
+        return distance / ray.direction.y;
+    }
+    else
+    {
+        float distance = plane_offset - ray.position.z;
+
+        return distance / ray.direction.z;
+    }
+}
+
+__device__ bool intersect_bounding_box(Ray ray, Bounding_Box bounding_box, float& t1, float& t2) // slab method https://tavianator.com/2011/ray_box.html
+{
+    Vec3D t_min;
+    t_min.x = (bounding_box.min.x - ray.position.x) / ray.direction.x;
+    t_min.y = (bounding_box.min.y - ray.position.y) / ray.direction.y;
+    t_min.z = (bounding_box.min.z - ray.position.z) / ray.direction.z;
+
+    Vec3D t_max;
+    t_max.x = (bounding_box.max.x - ray.position.x) / ray.direction.x;
+    t_max.y = (bounding_box.max.y - ray.position.y) / ray.direction.y;
+    t_max.z = (bounding_box.max.z - ray.position.z) / ray.direction.z;
+
+    Vec3D s1;
+    s1.x = fminf(t_min.x, t_max.x);
+    s1.y = fminf(t_min.y, t_max.y);
+    s1.z = fminf(t_min.z, t_max.z);
+
+    Vec3D s2;
+    s2.x = fmaxf(t_min.x, t_max.x);
+    s2.y = fmaxf(t_min.y, t_max.y);
+    s2.z = fmaxf(t_min.z, t_max.z);
+
+    float t_near = fmaxf(fmaxf(s1.x, s1.y), s1.z);
+    float t_far = fminf(fminf(s2.x, s2.y), s2.z);
+
+    t1 = t_near;
+    t2 = t_far;
+
+
+    return (t_near <= t_far);
+}
+
+__device__ bool trace_ray(Ray ray, Scene scene, Sample& sample)
+{
+    int node_indicies[KD_TREE_DEPTH];
+    float entry_distances[KD_TREE_DEPTH];
+    float exit_distances[KD_TREE_DEPTH];
+
+    float t1, t2;
+
+    if (!intersect_bounding_box(ray, scene.kd_tree.bounding_box, t1, t2))
+    {
+        return false;
+    }
+
+    node_indicies[0] = 0;
+    entry_distances[0] = t1;
+    exit_distances[0] = t2;
+
+    int stack_index = 1;
+
+
+    while (stack_index > 0)
+    {
+        --stack_index; // pop stack
+        KD_Tree_Node node = scene.kd_tree.nodes[node_indicies[stack_index]];
+
+        float entry_distance = entry_distances[stack_index];
+        float exit_distance = exit_distances[stack_index];
+
+
+        while (!node.is_leaf_node)
+        {
+            int near_child_index = node.child_index1;
+            int far_child_index = node.child_index2;
+
+            if (ray_behind_plane(ray, node.plane_axis, node.plane_offset))
+            {
+                near_child_index = node.child_index2;
+                far_child_index = node.child_index1;
+            }
+
+
+            float t = intersect_plane(ray, node.plane_axis, node.plane_offset);
+
+
+            if (t >= exit_distance || t < 0)
+            {
+                node = scene.kd_tree.nodes[near_child_index];
+            }
+            else if (t <= entry_distance)
+            {
+                node = scene.kd_tree.nodes[far_child_index];
+            }
+            else
+            {
+                node_indicies[stack_index] = far_child_index;
+                entry_distances[stack_index] = t;
+                exit_distances[stack_index] = exit_distance;
+                ++stack_index;
+
+                node = scene.kd_tree.nodes[near_child_index];
+                exit_distance = t;
+            }
+        }
+        
+        if (node.triangle_count > 0)
+        {
+            if (trace_leaf_node(ray, exit_distance, node.index_offset, node.triangle_count, scene.kd_tree.triangle_indicies, scene.triangles, sample))
+            {
+                return true;
+            }
+        }
+    }
+
+    return false;
 }

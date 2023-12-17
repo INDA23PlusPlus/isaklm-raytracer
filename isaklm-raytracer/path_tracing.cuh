@@ -52,7 +52,7 @@ __device__ void trace_path(G_Buffer g_buffer, Ray ray, Scene scene, int pixel_in
 
     Sample sample;
 
-    for (int i = 0; i < MAX_BOUNCES; ++i)
+    for(int i = 0; i < MAX_BOUNCES; ++i)
     {
         if (trace_ray(ray, scene, sample))
         {
@@ -70,7 +70,15 @@ __device__ void trace_path(G_Buffer g_buffer, Ray ray, Scene scene, int pixel_in
     }
 
 
-    g_buffer.frame_buffer[pixel_index] += throughput * outgoing_light;
+    g_buffer.frame_buffer[pixel_index] += outgoing_light;
+}
+
+__device__ Vec3D random_point_in_pinhole(Camera camera, G_Buffer g_buffer, int pixel_index)
+{
+    float random_offset_x = (get_random_unilateral(g_buffer, pixel_index) - 0.5f) * camera.pinhole_width;
+    float random_offset_y = (get_random_unilateral(g_buffer, pixel_index) - 0.5f) * camera.pinhole_width;
+
+    return camera.position + camera.rotation() * Vec3D { random_offset_x, 0.0f, 0.0f } + camera.rotation() * Vec3D { 0.0f, random_offset_y, 0.0f };
 }
 
 __global__ void path_tracing(G_Buffer g_buffer, Scene scene, Camera camera)
@@ -95,7 +103,7 @@ __global__ void path_tracing(G_Buffer g_buffer, Scene scene, Camera camera)
             ray_direction = camera.rotation() * ray_direction;
 
 
-            trace_path(g_buffer, { camera.position, ray_direction }, scene, pixel_index);
+            trace_path(g_buffer, { random_point_in_pinhole(camera, g_buffer, pixel_index), ray_direction }, scene, pixel_index);
         }
     }
 }

@@ -9,3 +9,5 @@
 #define MAX_COLOR_CHANNEL 255
 
 #define MAX_BOUNCES 5
+
+#define KD_TREE_DEPTH 17
