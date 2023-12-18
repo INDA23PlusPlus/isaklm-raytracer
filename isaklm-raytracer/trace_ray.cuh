@@ -128,6 +128,11 @@ __device__ bool trace_leaf_node(Ray ray, float max_t, int index_offset, int tria
             sample.tangent = normalize(cross(sample.normal, triangle.p2 - triangle.p1));
             sample.bitangent = cross(sample.normal, sample.tangent);
 
+            if (dot(ray.direction, sample.normal) > 0) // flip the normal if it is pointing in the wrong direction
+            {
+                sample.normal = -sample.normal;
+            }
+
             smallest_t = t;
         }
     }

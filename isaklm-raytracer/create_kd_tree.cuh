@@ -17,6 +17,9 @@
 
 Bounding_Box get_bounding_box(std::vector<int>& triangle_indicies, std::vector<Triangle>& triangles)
 {
+	float epsilon = 0.01f;
+
+
 	Bounding_Box bounding_box = { { FLT_MAX, FLT_MAX, FLT_MAX }, -Vec3D{ FLT_MAX, FLT_MAX, FLT_MAX } };
 
 
@@ -44,6 +47,10 @@ Bounding_Box get_bounding_box(std::vector<int>& triangle_indicies, std::vector<T
 		bounding_box.max.y = fmaxf(triangle_bounding_box.max.y, bounding_box.max.y);
 		bounding_box.max.z = fmaxf(triangle_bounding_box.max.z, bounding_box.max.z);
 	}
+
+
+	bounding_box.min -= { epsilon, epsilon, epsilon };
+	bounding_box.max += { epsilon, epsilon, epsilon };
 
 
 	return bounding_box;

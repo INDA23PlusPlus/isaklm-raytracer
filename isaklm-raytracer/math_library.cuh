@@ -313,6 +313,11 @@ struct Matrix3X3
 	Vec3D k_hat;
 };
 
+__host__ __device__ Matrix3X3 operator * (Matrix3X3 m, float s)
+{
+	return { s * m.i_hat, s * m.j_hat, s * m.k_hat };
+}
+
 __host__ __device__ Vec3D operator * (Matrix3X3 m, Vec3D v)
 {
 	return v.x * m.i_hat + v.y * m.j_hat + v.z * m.k_hat;
@@ -323,7 +328,7 @@ __host__ __device__ Matrix3X3 operator * (Matrix3X3 m2, Matrix3X3 m1)
 	return { m2 * m1.i_hat, m2 * m1.j_hat, m2 * m1.k_hat };
 }
 
-__host__ __device__ Matrix3X3 rotation_matrix(float yaw, float pitch)
+__host__ __device__ Matrix3X3 rotation_matrix(float yaw, float pitch = 0.0f, float roll = 0.0f)
 {
 	Matrix3X3 y_axis_rotation =
 	{
@@ -339,5 +344,24 @@ __host__ __device__ Matrix3X3 rotation_matrix(float yaw, float pitch)
 		{ 0.0f, -sin(pitch), cos(pitch) }
 	};
 
-	return y_axis_rotation * x_axis_rotation;
+	Matrix3X3 z_axis_rotation =
+	{
+		{ cos(roll), sin(roll), 0.0f },
+		{ -sin(roll), cos(roll), 0.0f },
+		{ 0.0f, 0.0f, 1.0f }
+	};
+
+	return z_axis_rotation * y_axis_rotation * x_axis_rotation;
+}
+
+__host__ __device__ Matrix3X3 scale_matrix(float scale)
+{
+	Matrix3X3 matrix =
+	{
+		{ scale, 0.0f, 0.0f },
+		{ 0.0f, scale, 0.0f },
+		{ 0.0f, 0.0f, scale }
+	};
+
+	return matrix;
 }

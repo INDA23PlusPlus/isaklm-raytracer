@@ -17,6 +17,8 @@ struct Material
 {
 	Vec3D albedo;
 	Vec3D emittance;
+	float roughness;
+	float refractive_index;
 };
 
 struct Triangle
