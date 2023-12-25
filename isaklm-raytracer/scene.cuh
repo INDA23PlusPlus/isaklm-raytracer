@@ -13,28 +13,14 @@
 #include "stb_image/stb_image.h"
 
 
-struct Material
-{
-	Vec3D albedo;
-	Vec3D emittance;
-	float roughness;
-	float refractive_index;
-};
-
-struct Triangle
-{
-	Vec3D p1, p2, p3; // points
-	Vec3D n1, n2, n3;
-	Vec2D t1, t2, t3; // texture coordinates
-	Material material;
-};
-
 struct Texture
 {
 	uchar4* buffer;
 	int width = 0;
 	int height = 0;
 };
+
+#define NO_TEXTURE Texture{ nullptr, 0, 0 }
 
 void make_texture(Texture& texture, const std::string& file_path)
 {
@@ -75,6 +61,25 @@ void make_texture(Texture& texture, const std::string& file_path)
 
 	free(temporary_buffer);
 }
+
+struct Material
+{
+	Vec3D albedo;
+	Texture texture;
+	Vec3D emittance;
+	float roughness;
+	float refractive_index;
+	float extinction;
+	bool transparent;
+};
+
+struct Triangle
+{
+	Vec3D p1, p2, p3; // points
+	Vec3D n1, n2, n3;
+	Vec2D t1, t2, t3; // texture coordinates
+	Material material;
+};
 
 struct KD_Tree_Node
 {

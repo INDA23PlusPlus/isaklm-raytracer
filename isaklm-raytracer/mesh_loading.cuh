@@ -13,7 +13,14 @@
 #include "scene.cuh"
 
 
-void load_mesh(std::string file_path, std::vector<Triangle>& triangles, Vec3D offset, Matrix3X3 transformation_matrix, Material material, bool smooth_normals)
+struct Transformation
+{
+	Vec3D offset;
+	Matrix3X3 matrix;
+};
+
+
+void load_mesh(std::string file_path, std::vector<Triangle>& triangles, Transformation transformation, Material material, bool smooth_normals)
 {
 	int vertex_count = 0;
 	int face_count = 0;
@@ -65,7 +72,7 @@ void load_mesh(std::string file_path, std::vector<Triangle>& triangles, Vec3D of
 			string_stream >> begin >> vertex.x >> vertex.y >> vertex.z;
 
 
-			vertex_coordinates[vertex_index] = transformation_matrix * vertex + offset;
+			vertex_coordinates[vertex_index] = transformation.matrix * vertex + transformation.offset;
 
 
 			++vertex_index;

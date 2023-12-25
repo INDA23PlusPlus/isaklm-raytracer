@@ -106,6 +106,8 @@
       <DeploymentContent Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</DeploymentContent>
     </Image>
     <Image Include="textures\sky.jpg" />
+    <Image Include="textures\wall.png" />
+    <Image Include="textures\wood_floor.jpg" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="stb_image\stb_image.cpp" />

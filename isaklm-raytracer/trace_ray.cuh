@@ -16,24 +16,30 @@
 
 struct Sample
 {
-    Material material;
+    Vec3D albedo;
+    Vec3D emittance;
+    float roughness;
+    float refractive_index;
+    float extinction;
+    bool transparent;
+
     Vec3D position;
     Vec3D normal, tangent, bitangent;
 };
 
-__device__ Vec3D sample_sky(Vec3D ray_direction, Scene scene, float multiplier)
+__device__ Vec3D sample_texture(Texture texture, Vec3D color_blend, Vec2D texture_coordinates)
 {
-    Vec2D sample;
+    if (texture.buffer == nullptr)
+    {
+        return color_blend;
+    }
 
-    sample.x = (sign(ray_direction.z) * acosf(ray_direction.x / sqrtf(ray_direction.x * ray_direction.x + ray_direction.z * ray_direction.z)) + PI) / TAU;
-    sample.y = acosf(ray_direction.y) / PI;
 
+    int pixel_number = int(texture_coordinates.y * texture.height) * texture.width + (texture_coordinates.x * texture.width);
 
-    int pixel_number = int(sample.y * scene.sky_texture.height) * scene.sky_texture.width + (sample.x * scene.sky_texture.width);
+    uchar4 color = texture.buffer[pixel_number];
 
-    uchar4 color = scene.sky_texture.buffer[pixel_number];
-
-    return Vec3D{ color.x / 255.0f, color.y / 255.0f, color.z / 255.0f } * multiplier;
+    return Vec3D{ color.x / 255.0f, color.y / 255.0f, color.z / 255.0f } * color_blend;
 }
 
 __device__ Vec3D calculate_barycentric_coordinates(Vec3D point_on_plane, Triangle triangle) // uses Cramer's rule to solve for barycentric coordinates, source: https://ceng2.ktu.edu.tr/~cakir/files/grafikler/Texture_Mapping.pdf
@@ -120,8 +126,17 @@ __device__ bool trace_leaf_node(Ray ray, float max_t, int index_offset, int tria
         if (intersect_triangle(ray, triangle, &barycentric_coordinates, &t) && (t < smallest_t))
         {
             hit = true;
+            smallest_t = t;
 
-            sample.material = triangle.material;
+            Vec2D texture_coordinates = triangle.t1 * barycentric_coordinates.x + triangle.t2 * barycentric_coordinates.y + triangle.t3 * barycentric_coordinates.z;
+
+            sample.albedo = sample_texture(triangle.material.texture, triangle.material.albedo, texture_coordinates);
+            sample.emittance = sample_texture(triangle.material.texture, triangle.material.emittance, texture_coordinates);
+            sample.roughness = triangle.material.roughness;
+            sample.refractive_index = triangle.material.refractive_index;
+            sample.extinction = triangle.material.extinction;
+            sample.transparent = triangle.material.transparent;
+
             sample.position = barycentric_coordinates.x * triangle.p1 + barycentric_coordinates.y * triangle.p2 + barycentric_coordinates.z * triangle.p3;
 
             sample.normal = normalize(barycentric_coordinates.x * triangle.n1 + barycentric_coordinates.y * triangle.n2 + barycentric_coordinates.z * triangle.n3);
@@ -132,8 +147,6 @@ __device__ bool trace_leaf_node(Ray ray, float max_t, int index_offset, int tria
             {
                 sample.normal = -sample.normal;
             }
-
-            smallest_t = t;
         }
     }
 

@@ -97,7 +97,7 @@ int main()
 
     Scene scene = create_scene();
 
-    Camera camera = { { 0.0f, 1.0f, -3.0f }, 0, 0, HALF_PI, 0.02f };
+    Camera camera = { { 0.0f, 1.0f, -3.0f }, 0, 0, HALF_PI, 0.004f };
 
 
     int sample_count = 1;

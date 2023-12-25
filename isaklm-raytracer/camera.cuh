@@ -17,7 +17,7 @@ struct Camera
 	Vec3D position;
 	float yaw, pitch;
 	float FOV;
-	float pinhole_width;
+	float aperture_radius;
 
 	__host__ __device__ Matrix3X3 rotation()
 	{

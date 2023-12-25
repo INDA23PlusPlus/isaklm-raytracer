@@ -42,11 +42,11 @@ __device__ Vec3D diffuse_direction(G_Buffer g_buffer, int pixel_index, Vec3D nor
     return sqrt_random_unilateral * cos_phi * tangent + sqrtf(1.0f - random_unilateral) * normal + sqrt_random_unilateral * sin_phi * bitangent;
 }
 
-__device__ float fresnel(Vec3D incoming_direction, Vec3D half_vector, float n1, float n2)
+__device__ float fresnel_dielectric(Vec3D incoming_direction, Vec3D half_vector, float n1, float n2)
 {
     float c = fabsf(dot(incoming_direction, half_vector));
 
-    float g = sqrtf(square(n2) / square(n1) - 1.0f + square(c));
+    float g = sqrtf(fmaxf(square(n2) / square(n1) - 1.0f + square(c), 0.0f));
 
 
     float factor1 = 0.5f * square((g - c) / (g + c));
@@ -57,12 +57,37 @@ __device__ float fresnel(Vec3D incoming_direction, Vec3D half_vector, float n1, 
     return factor1 * factor2;
 }
 
-__device__ Vec3D microfacet_normal(G_Buffer g_buffer, int pixel_index, Sample& sample) // GGX distribution
+__device__ float fresnel_conductor(Vec3D incoming_direction, Vec3D half_vector, float n, float k)
+{
+    // reference https://seblagarde.wordpress.com/2013/04/29/memo-on-fresnel-equations/#more-1921
+
+    float n2 = n * n;
+    float k2 = k * k;
+
+    float cos_theta = dot(incoming_direction, half_vector);
+    float cos_theta2 = square(cos_theta);
+    float sin_theta2 = 1.0f - cos_theta2;
+
+    float t0 = n2 - k2 - sin_theta2;
+    float a2_plus_b2 = sqrtf(square(t0) + 4.0f * n2 * k2);
+    float a = sqrtf(0.5f * (a2_plus_b2 + t0));
+
+    float t1 = a2_plus_b2 + cos_theta2;
+    float t2 = 2.0f * a * cos_theta;
+
+    float rs = (t1 - t2) / (t1 + t2);
+
+    float t3 = cos_theta2 * a2_plus_b2 * square(sin_theta2);
+    float t4 = t2 * sin_theta2;
+    float rp = rs * (t3 - t4) / (t3 + t4);
+
+    return (rs + rp) * 0.5f;
+}
+
+__device__ Vec3D microfacet_normal(G_Buffer g_buffer, int pixel_index, Vec3D normal, Vec3D tangent, Vec3D bitangent, float roughness) // GGX distribution
 {
     double random_unilateral = get_random_unilateral(g_buffer, pixel_index);
 
-
-    float roughness = sample.material.roughness;
 
     float cos_theta = sqrtf((1.0f - random_unilateral) / (random_unilateral * (roughness * roughness - 1.0f) + 1.0f));
     float sin_theta = sqrtf(1.0f - cos_theta * cos_theta);
@@ -73,25 +98,21 @@ __device__ Vec3D microfacet_normal(G_Buffer g_buffer, int pixel_index, Sample& s
     float sin_phi = sinf(random_phi);
 
 
-    return sample.tangent * sin_theta * cos_phi + sample.normal * cos_theta + sample.bitangent * sin_theta * sin_phi;
+    return tangent * sin_theta * cos_phi + normal * cos_theta + bitangent * sin_theta * sin_phi;
 }
 
-__device__ float geometry_term(Vec3D direction, Vec3D half_vector, Vec3D normal, float roughness)
+__device__ float lambda(Vec3D direction, Vec3D normal, float roughness)
 {
-    double direction_dot_normal = dot(direction, normal);
-    double direction_dot_normal2 = square(direction_dot_normal);
-    double tan2 = (1 - direction_dot_normal2) / direction_dot_normal2;
+    float direction_dot_normal = dot(direction, normal);
+    float direction_dot_normal2 = square(direction_dot_normal);
+    float tan2 = (1 - direction_dot_normal2) / direction_dot_normal2;
 
-    float term1 = dot(direction, half_vector) / dot(direction, normal);
-
-    float term2 = 2.0f / (1.0f + sqrtf(1.0f + square(roughness) + tan2));
-
-    return term1 > 0 ? term2 : 0;
+    return (sqrtf(1.0f + square(roughness) + tan2) - 1.0f) * 0.5f;
 }
 
 __device__ Vec3D specular_weight(Vec3D incoming_direction, Vec3D outgoing_direction, Vec3D half_vector, Vec3D normal, float roughness)
 {
-    float g = geometry_term(incoming_direction, half_vector, normal, roughness) * geometry_term(outgoing_direction, half_vector, normal, roughness);
+    float g = 1.0f / (1.0f + lambda(incoming_direction, normal, roughness) + lambda(outgoing_direction, normal, roughness));
 
     float weight = fabsf(dot(incoming_direction, half_vector)) * g / (fabsf(dot(normal, half_vector) * fabsf(dot(incoming_direction, normal))));
 
@@ -103,35 +124,83 @@ __device__ Vec3D specular_direction(Vec3D incoming_direction, Vec3D half_vector)
     return 2.0f * dot(incoming_direction, half_vector) * half_vector - incoming_direction;
 }
 
-__device__ Vec3D get_scattered_light(Vec3D& ray_direction, G_Buffer g_buffer, int pixel_index, Sample& sample) // returns amount of scattered light
+__device__ Vec3D refraction_direction(Vec3D incoming_direction, Vec3D half_vector, float n1, float n2)
+{
+    float c = dot(incoming_direction, half_vector);
+    float n = n1 / n2;
+
+    return (n * c - sqrtf(fmaxf(1.0f + n * n * (c * c - 1.0f), 0.0f))) * half_vector - n * incoming_direction;
+}
+
+__device__ Vec3D get_scattered_light(Vec3D& ray_direction, bool& inside_medium, G_Buffer g_buffer, int pixel_index, Sample& sample) // returns amount of scattered light
 {
     // microfacet models found at: https://www.graphics.cornell.edu/~bjw/microfacetbsdf.pdf
 
     ray_direction = -ray_direction; // all bsdf equations assume that the direction_vector is pointing away from the surface.
 
 
-    Vec3D half_vector = microfacet_normal(g_buffer, pixel_index, sample);
+    Vec3D half_vector = microfacet_normal(g_buffer, pixel_index, sample.normal, sample.tangent, sample.bitangent, sample.roughness);
 
 
-    float choose_scatter_type = get_random_unilateral(g_buffer, pixel_index);
-
-    float fresnel_term = fresnel(ray_direction, half_vector, 1.0f, sample.material.refractive_index);
-
-
-    if (choose_scatter_type < fresnel_term)
+    if (sample.extinction > 0.0f) // metallic reflection
     {
+        float fresnel_term = fresnel_conductor(ray_direction, half_vector, sample.refractive_index, sample.extinction);
+
         Vec3D incoming_direction = ray_direction;
         Vec3D outgoing_direction = specular_direction(incoming_direction, half_vector);
 
         ray_direction = outgoing_direction;
 
-        return specular_weight(incoming_direction, outgoing_direction, half_vector, sample.normal, sample.material.roughness);
+        return sample.albedo * specular_weight(incoming_direction, outgoing_direction, half_vector, sample.normal, sample.roughness) * fresnel_term;
     }
     else
     {
-        ray_direction = diffuse_direction(g_buffer, pixel_index, sample.normal, sample.tangent, sample.bitangent);
+        float n1 = 1.0f;
+        float n2 = sample.refractive_index;
 
-        return sample.material.albedo;
+        if (inside_medium)
+        {
+            n1 = n2;
+            n2 = 1.0f;
+        }
+
+
+        float fresnel_term = fresnel_dielectric(ray_direction, half_vector, n1, n2);
+        float choose_specular = get_random_unilateral(g_buffer, pixel_index);
+
+        if (choose_specular < fresnel_term) // specular reflection
+        {
+            Vec3D incoming_direction = ray_direction;
+            Vec3D outgoing_direction = specular_direction(incoming_direction, half_vector);
+
+            ray_direction = outgoing_direction;
+
+            Vec3D weight = { 1.0f, 1.0f, 1.0f };
+
+            if (!inside_medium) // since this brdf loses some energy, it makes the glass look too dark due to the many bounces
+            {
+                weight = specular_weight(incoming_direction, outgoing_direction, half_vector, sample.normal, sample.roughness);
+            }
+
+            return weight;
+        }
+        else if(sample.transparent) // refraction
+        {
+            inside_medium = !inside_medium;
+
+            Vec3D incoming_direction = ray_direction;
+            Vec3D outgoing_direction = refraction_direction(incoming_direction, half_vector, n1, n2);
+
+            ray_direction = outgoing_direction;
+
+            return specular_weight(incoming_direction, outgoing_direction, half_vector, sample.normal, sample.roughness) * sample.albedo;
+        }
+        else // diffuse reflection
+        {
+            ray_direction = diffuse_direction(g_buffer, pixel_index, sample.normal, sample.tangent, sample.bitangent);
+
+            return sample.albedo;
+        }
     }
 }
 
@@ -142,24 +211,38 @@ __device__ void trace_path(G_Buffer g_buffer, Ray ray, Scene scene, int pixel_in
 
     Vec3D throughput = Vec3D{ 1.0f, 1.0f, 1.0f };
 
+    bool inside_medium = false;
 
-    Sample sample;
 
-    for(int i = 0; i < MAX_BOUNCES; ++i)
+    while(true)
     {
+        Sample sample;
+
         if (trace_ray(ray, scene, sample))
         {
-            outgoing_light += sample.material.emittance * throughput;
+            outgoing_light += sample.emittance * throughput;
 
             ray.position = sample.position;
 
 
-            throughput *= get_scattered_light(ray.direction, g_buffer, pixel_index, sample);
+            throughput *= get_scattered_light(ray.direction, inside_medium, g_buffer, pixel_index, sample);
         }
         else
         {
             break;
         }
+
+
+        float survival_probability = fmaxf(throughput.x, fmaxf(throughput.y, throughput.z));
+
+        float random_unilateral = get_random_unilateral(g_buffer, pixel_index);
+
+        if (random_unilateral > survival_probability)
+        {
+            break;
+        }
+
+        throughput *= (1.0f / survival_probability);
     }
 
 
@@ -168,10 +251,13 @@ __device__ void trace_path(G_Buffer g_buffer, Ray ray, Scene scene, int pixel_in
 
 __device__ Vec3D random_point_in_pinhole(Camera camera, G_Buffer g_buffer, int pixel_index)
 {
-    float random_offset_x = (get_random_unilateral(g_buffer, pixel_index) - 0.5f) * camera.pinhole_width;
-    float random_offset_y = (get_random_unilateral(g_buffer, pixel_index) - 0.5f) * camera.pinhole_width;
+    float random_theta = get_random_unilateral(g_buffer, pixel_index) * TAU;
+    float random_r = sqrtf(get_random_unilateral(g_buffer, pixel_index)) * camera.aperture_radius;
 
-    return camera.position + camera.rotation() * Vec3D { random_offset_x, 0.0f, 0.0f } + camera.rotation() * Vec3D { 0.0f, random_offset_y, 0.0f };
+    float offset_x = random_r * cosf(random_theta);
+    float offset_y = random_r * sinf(random_theta);
+
+    return camera.position + camera.rotation() * Vec3D{ offset_x, 0.0f, 0.0f } + camera.rotation() * Vec3D{ 0.0f, offset_y, 0.0f };
 }
 
 __global__ void path_tracing(G_Buffer g_buffer, Scene scene, Camera camera)
