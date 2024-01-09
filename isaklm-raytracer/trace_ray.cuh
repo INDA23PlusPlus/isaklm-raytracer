@@ -23,6 +23,7 @@ struct Sample
     float extinction;
     bool transparent;
 
+    int triangle_index;
     Vec3D position;
     Vec3D normal, tangent, bitangent;
 };
@@ -34,12 +35,14 @@ __device__ Vec3D sample_texture(Texture texture, Vec3D color_blend, Vec2D textur
         return color_blend;
     }
 
+    texture_coordinates.x = mod(texture_coordinates.x, 1.0f);
+    texture_coordinates.y = mod(texture_coordinates.y, 1.0f);
 
     int pixel_number = int(texture_coordinates.y * texture.height) * texture.width + (texture_coordinates.x * texture.width);
 
     uchar4 color = texture.buffer[pixel_number];
 
-    return Vec3D{ color.x / 255.0f, color.y / 255.0f, color.z / 255.0f } * color_blend;
+    return Vec3D{ color.x / float(MAX_COLOR_CHANNEL), color.y / float(MAX_COLOR_CHANNEL), color.z / float(MAX_COLOR_CHANNEL) } * color_blend;
 }
 
 __device__ Vec3D calculate_barycentric_coordinates(Vec3D point_on_plane, Triangle triangle) // uses Cramer's rule to solve for barycentric coordinates, source: https://ceng2.ktu.edu.tr/~cakir/files/grafikler/Texture_Mapping.pdf
@@ -86,7 +89,7 @@ __device__ bool intersect_triangle(Ray ray, Triangle triangle, Vec3D* barycentri
 
     float s = (d - dot(ray.position, normal)) / direction_dot_normal;
 
-    if (s < 0.0001f) // no intersection
+    if (s < 0.00001f) // no intersection
     {
         return false;
     }
@@ -111,45 +114,59 @@ __device__ bool intersect_triangle(Ray ray, Triangle triangle, Vec3D* barycentri
 
 __device__ bool trace_leaf_node(Ray ray, float max_t, int index_offset, int triangle_count, int* triangle_indicies, Triangle* triangles, Sample& sample)
 {
-    float smallest_t = max_t;
     bool hit = false;
+    int triangle_index = -1;
+    Vec3D barycentric_coordinates = ZERO_VEC3D;
+
+    float smallest_t = max_t;
 
 
     for (int i = 0; i < triangle_count; ++i)
     {
-        Triangle triangle = triangles[triangle_indicies[index_offset + i]];
+        int index = triangle_indicies[index_offset + i];
+        Triangle triangle = triangles[index];
 
 
-        Vec3D barycentric_coordinates = ZERO_VEC3D;
+        Vec3D barycentric = ZERO_VEC3D;
         float t = FLT_MAX;
 
-        if (intersect_triangle(ray, triangle, &barycentric_coordinates, &t) && (t < smallest_t))
+        if (intersect_triangle(ray, triangle, &barycentric, &t) && (t < smallest_t))
         {
             hit = true;
             smallest_t = t;
 
-            Vec2D texture_coordinates = triangle.t1 * barycentric_coordinates.x + triangle.t2 * barycentric_coordinates.y + triangle.t3 * barycentric_coordinates.z;
-
-            sample.albedo = sample_texture(triangle.material.texture, triangle.material.albedo, texture_coordinates);
-            sample.emittance = sample_texture(triangle.material.texture, triangle.material.emittance, texture_coordinates);
-            sample.roughness = triangle.material.roughness;
-            sample.refractive_index = triangle.material.refractive_index;
-            sample.extinction = triangle.material.extinction;
-            sample.transparent = triangle.material.transparent;
-
-            sample.position = barycentric_coordinates.x * triangle.p1 + barycentric_coordinates.y * triangle.p2 + barycentric_coordinates.z * triangle.p3;
-
-            sample.normal = normalize(barycentric_coordinates.x * triangle.n1 + barycentric_coordinates.y * triangle.n2 + barycentric_coordinates.z * triangle.n3);
-            sample.tangent = normalize(cross(sample.normal, triangle.p2 - triangle.p1));
-            sample.bitangent = cross(sample.normal, sample.tangent);
-
-            if (dot(ray.direction, sample.normal) > 0) // flip the normal if it is pointing in the wrong direction
-            {
-                sample.normal = -sample.normal;
-            }
+            triangle_index = index;
+            barycentric_coordinates = barycentric;
         }
     }
 
+
+    if (hit)
+    {
+        Triangle triangle = triangles[triangle_index];
+
+        Vec2D texture_coordinates = triangle.uv1 * barycentric_coordinates.x + triangle.uv2 * barycentric_coordinates.y + triangle.uv3 * barycentric_coordinates.z;
+
+        sample.albedo = sample_texture(triangle.material.texture, triangle.material.albedo, texture_coordinates);
+        sample.emittance = sample_texture(triangle.material.texture, triangle.material.emittance, texture_coordinates);
+        sample.roughness = triangle.material.roughness;
+        sample.refractive_index = triangle.material.refractive_index;
+        sample.extinction = triangle.material.extinction;
+        sample.transparent = triangle.material.transparent;
+
+        sample.triangle_index = triangle_index;
+        sample.position = barycentric_coordinates.x * triangle.p1 + barycentric_coordinates.y * triangle.p2 + barycentric_coordinates.z * triangle.p3;
+
+        sample.normal = normalize(barycentric_coordinates.x * triangle.n1 + barycentric_coordinates.y * triangle.n2 + barycentric_coordinates.z * triangle.n3);
+        sample.tangent = normalize(cross(triangle.p2 - triangle.p1, sample.normal));
+        sample.bitangent = normalize(cross(sample.normal, sample.tangent));
+
+
+        if (dot(ray.direction, sample.normal) > 0) // flip the normal if it is pointing in the wrong direction
+        {
+            sample.normal = -sample.normal;
+        }
+    }
 
     return hit;
 }

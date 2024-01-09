@@ -35,37 +35,37 @@ inline void camera_movement(GLFWwindow* window, Camera& camera, float time_step,
 	{
 		motion_vector = camera.rotation() * Vec3D { 0.0f, 0.0f, 1.0f } * movement_speed;
 
-		sample_count = 1;
+		sample_count = 0;
 	}
 	if (glfwGetKey(window, GLFW_KEY_A))
 	{
 		motion_vector = camera.rotation() * Vec3D{ -1.0f, 0.0f, 0.0f } * movement_speed;
 
-		sample_count = 1;
+		sample_count = 0;
 	}
 	if (glfwGetKey(window, GLFW_KEY_S))
 	{
 		motion_vector = camera.rotation() * Vec3D{ 0.0f, 0.0f, -1.0f } * movement_speed;
 
-		sample_count = 1;
+		sample_count = 0;
 	}
 	if (glfwGetKey(window, GLFW_KEY_D))
 	{
 		motion_vector = camera.rotation() * Vec3D{ 1.0f, 0.0f, 0.0f } * movement_speed;
 
-		sample_count = 1;
+		sample_count = 0;
 	}
 	if (glfwGetKey(window, GLFW_KEY_SPACE))
 	{
 		motion_vector = Vec3D{ 0.0f, 1.0f, 0.0f } * movement_speed;
 
-		sample_count = 1;
+		sample_count = 0;
 	}
 	if (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT))
 	{
 		motion_vector = Vec3D{ 0.0f, -1.0f, 0.0f } * movement_speed;
 
-		sample_count = 1;
+		sample_count = 0;
 	}
 
 	camera.position += motion_vector;
@@ -77,24 +77,24 @@ inline void camera_movement(GLFWwindow* window, Camera& camera, float time_step,
 	{
 		camera.yaw -= rotation_speed;
 
-		sample_count = 1;
+		sample_count = 0;
 	}
 	if (glfwGetKey(window, GLFW_KEY_RIGHT))
 	{
 		camera.yaw += rotation_speed;
 
-		sample_count = 1;
+		sample_count = 0;
 	}
 	if (glfwGetKey(window, GLFW_KEY_UP))
 	{
 		camera.pitch -= rotation_speed;
 
-		sample_count = 1;
+		sample_count = 0;
 	}
 	if (glfwGetKey(window, GLFW_KEY_DOWN))
 	{
 		camera.pitch += rotation_speed;
 
-		sample_count = 1;
+		sample_count = 0;
 	}
 }

@@ -29,7 +29,12 @@ __host__ __device__ float sign(float x)
 	return (x >= 0) ? 1.0f : -1.0f;
 }
 
-__device__ float gamma_correction(float x)
+__host__ __device__ float mod(float x, float modulo)
+{
+	return x - modulo * floorf(x / modulo);
+}
+
+__host__ __device__ float gamma_correction(float x)
 {
 	float output = 12.92 * x;
 
@@ -39,6 +44,11 @@ __device__ float gamma_correction(float x)
 	}
 
 	return output;
+}
+
+__host__ __device__ float aces_curve(float x)
+{
+	return (x * (x + 0.0245786f) - 0.000090537f) / (x * (0.983729f * x + 0.4329510f) + 0.238081f);
 }
 
 
@@ -240,19 +250,19 @@ __host__ __device__ Vec3D lerp(Vec3D v1, Vec3D v2, float t)
 	return v1 + t * (v2 - v1);
 }
 
-__device__ Vec3D proj(Vec3D v1, Vec3D v2)
+__host__ __device__ Vec3D proj(Vec3D v1, Vec3D v2)
 {
 	return (dot(v1, v2) / magnitude_squared(v2)) * v2;
 }
 
-__device__ Vec3D gamma_correction(Vec3D color)
+__host__ __device__ Vec3D gamma_correction(Vec3D color)
 {
 	return { gamma_correction(color.r), gamma_correction(color.g), gamma_correction(color.b) };
 }
 
-__device__ Vec3D tone_mapping(Vec3D color)
+__host__ __device__ float luminance(Vec3D color)
 {
-	return color;
+	return dot(color, { 0.2126f, 0.7152f, 0.0722f });
 }
 
 
@@ -308,12 +318,28 @@ struct Ray
 
 struct Matrix3X3
 {
-	Vec3D i_hat;
-	Vec3D j_hat;
-	Vec3D k_hat;
+	union
+	{
+		Vec3D i_hat, tangent;
+	};
+
+	union
+	{
+		Vec3D j_hat, normal;
+	};
+
+	union
+	{
+		Vec3D k_hat, bitangent;
+	};
 };
 
 __host__ __device__ Matrix3X3 operator * (Matrix3X3 m, float s)
+{
+	return { s * m.i_hat, s * m.j_hat, s * m.k_hat };
+}
+
+__host__ __device__ Matrix3X3 operator * (float s, Matrix3X3 m)
 {
 	return { s * m.i_hat, s * m.j_hat, s * m.k_hat };
 }
@@ -326,6 +352,33 @@ __host__ __device__ Vec3D operator * (Matrix3X3 m, Vec3D v)
 __host__ __device__ Matrix3X3 operator * (Matrix3X3 m2, Matrix3X3 m1)
 {
 	return { m2 * m1.i_hat, m2 * m1.j_hat, m2 * m1.k_hat };
+}
+
+__host__ __device__ Matrix3X3 invert(Matrix3X3 m)
+{
+	float reciprocal_determinant = 1 / dot(m.i_hat, cross(m.j_hat, m.k_hat));
+
+	Vec3D new_i_hat;
+	Vec3D new_j_hat;
+	Vec3D new_k_hat;
+
+	new_i_hat.x = m.j_hat.y * m.k_hat.z - m.k_hat.y * m.j_hat.z;
+	new_i_hat.y = -(m.i_hat.y * m.k_hat.z - m.k_hat.y * m.i_hat.z);
+	new_i_hat.z = m.i_hat.y * m.j_hat.z - m.j_hat.y * m.i_hat.z;
+
+	new_j_hat.x = -(m.j_hat.x * m.k_hat.z - m.k_hat.x * m.j_hat.z);
+	new_j_hat.y = m.i_hat.x * m.k_hat.z - m.k_hat.x * m.i_hat.z;
+	new_j_hat.z = -(m.i_hat.x * m.j_hat.z - m.j_hat.x * m.i_hat.z);
+
+	new_k_hat.x = m.j_hat.x * m.k_hat.y - m.k_hat.x * m.j_hat.y;
+	new_k_hat.y = -(m.i_hat.x * m.k_hat.y - m.k_hat.x * m.i_hat.y);
+	new_k_hat.z = m.i_hat.x * m.j_hat.y - m.j_hat.x * m.i_hat.y;
+
+	new_i_hat *= reciprocal_determinant;
+	new_j_hat *= reciprocal_determinant;
+	new_k_hat *= reciprocal_determinant;
+
+	return { new_i_hat, new_j_hat, new_k_hat };
 }
 
 __host__ __device__ Matrix3X3 rotation_matrix(float yaw, float pitch = 0.0f, float roll = 0.0f)
@@ -364,4 +417,44 @@ __host__ __device__ Matrix3X3 scale_matrix(float scale)
 	};
 
 	return matrix;
+}
+
+__host__ __device__ Vec3D aces_tone_mapping(Vec3D color)
+{
+	Matrix3X3 input_matrix =
+	{
+		{ 0.59719f, 0.07600f, 0.02840f },
+		{ 0.35458f, 0.90834f, 0.13383f },
+		{ 0.04823f, 0.01566f, 0.83777f }
+	};
+
+	Matrix3X3 output_matrix =
+	{
+		{ 1.60475f, -0.10208f, -0.00327f },
+		{ -0.53108f,  1.10813f, -0.07276f },
+		{ -0.07367f, -0.00605f,  1.07602f }
+	};
+
+	color = input_matrix * color;
+	color = { aces_curve(color.x), aces_curve(color.y), aces_curve(color.z) };
+	color = output_matrix * color;
+
+	return color;
+}
+
+__host__ __device__ Vec3D correct_color(Vec3D color)
+{
+	color.x = fmaxf(color.x, 0.0f);
+	color.y = fmaxf(color.y, 0.0f);
+	color.z = fmaxf(color.z, 0.0f);
+
+	color = aces_tone_mapping(color);
+
+	color = gamma_correction(color);
+
+	color.x = clamp(color.x, 0.0f, 1.0f);
+	color.y = clamp(color.y, 0.0f, 1.0f);
+	color.z = clamp(color.z, 0.0f, 1.0f);
+
+	return color;
 }

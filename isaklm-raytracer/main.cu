@@ -11,6 +11,7 @@
 #include "camera.cuh"
 #include "screen.cuh"
 #include "render.cuh"
+#include "save_render.cuh"
 
 
 uint32_t screen_GL_texture;
@@ -97,10 +98,13 @@ int main()
 
     Scene scene = create_scene();
 
-    Camera camera = { { 0.0f, 1.0f, -3.0f }, 0, 0, HALF_PI, 0.004f };
+    Camera camera = { { -2.1f, 1.7f, -1.2f }, 0, 0, HALF_PI, 0.002f };
+
+    camera.yaw = 0.975f;
+    camera.pitch = 0.3f;
 
 
-    int sample_count = 1;
+    int sample_count = 0;
 
     float time = 0;
     int frame_count = 0;
@@ -118,6 +122,14 @@ int main()
         call_render(g_buffer, scene, camera, sample_count);
 
         ++sample_count;
+
+
+        if (sample_count >= MAX_SAMPLES)
+        {
+            save_render(g_buffer);
+
+            break;
+        }
 
         /* Swap front and back buffers */
         glfwSwapBuffers(window);

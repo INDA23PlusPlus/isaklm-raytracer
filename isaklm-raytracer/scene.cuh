@@ -65,19 +65,19 @@ void make_texture(Texture& texture, const std::string& file_path)
 struct Material
 {
 	Vec3D albedo;
-	Texture texture;
 	Vec3D emittance;
 	float roughness;
 	float refractive_index;
 	float extinction;
 	bool transparent;
+	Texture texture;
 };
 
 struct Triangle
 {
 	Vec3D p1, p2, p3; // points
-	Vec3D n1, n2, n3;
-	Vec2D t1, t2, t3; // texture coordinates
+	Vec3D n1, n2, n3; // normals
+	Vec2D uv1, uv2, uv3; // texture coordinates
 	Material material;
 };
 
@@ -115,7 +115,7 @@ struct Scene
 {
 	Triangle* triangles;
 	int triangle_count;
-	Texture sky_texture;
-
+	int* light_indicies;
+	int light_count;
 	KD_Tree kd_tree;
 };

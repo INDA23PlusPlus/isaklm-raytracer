@@ -15,6 +15,22 @@
 #include "trace_ray.cuh"
 
 
+enum Ray_Type
+{
+    PRIMARY,
+    DIFFUSE,
+    SPECULAR,
+    METALLIC,
+    TRANSMISSION
+};
+
+struct Scattering_Event
+{
+    Ray ray;
+    Vec3D weight;
+    Ray_Type type;
+};
+
 __device__ float get_random_unilateral(G_Buffer g_buffer, int pixel_index)
 {
     uint32_t state = g_buffer.random_numbers[pixel_index] * 747796405u + 2891336453u;
@@ -132,7 +148,7 @@ __device__ Vec3D refraction_direction(Vec3D incoming_direction, Vec3D half_vecto
     return (n * c - sqrtf(fmaxf(1.0f + n * n * (c * c - 1.0f), 0.0f))) * half_vector - n * incoming_direction;
 }
 
-__device__ Vec3D get_scattered_light(Vec3D& ray_direction, bool& inside_medium, G_Buffer g_buffer, int pixel_index, Sample& sample) // returns amount of scattered light
+__device__ Scattering_Event get_scattered_light(Vec3D ray_direction, bool& inside_medium, G_Buffer g_buffer, int pixel_index, Sample sample) // returns amount of scattered light
 {
     // microfacet models found at: https://www.graphics.cornell.edu/~bjw/microfacetbsdf.pdf
 
@@ -149,9 +165,9 @@ __device__ Vec3D get_scattered_light(Vec3D& ray_direction, bool& inside_medium, 
         Vec3D incoming_direction = ray_direction;
         Vec3D outgoing_direction = specular_direction(incoming_direction, half_vector);
 
-        ray_direction = outgoing_direction;
+        Vec3D weight = sample.albedo * specular_weight(incoming_direction, outgoing_direction, half_vector, sample.normal, sample.roughness) * fresnel_term;
 
-        return sample.albedo * specular_weight(incoming_direction, outgoing_direction, half_vector, sample.normal, sample.roughness) * fresnel_term;
+        return { { sample.position, outgoing_direction }, weight, METALLIC };
     }
     else
     {
@@ -173,8 +189,6 @@ __device__ Vec3D get_scattered_light(Vec3D& ray_direction, bool& inside_medium, 
             Vec3D incoming_direction = ray_direction;
             Vec3D outgoing_direction = specular_direction(incoming_direction, half_vector);
 
-            ray_direction = outgoing_direction;
-
             Vec3D weight = { 1.0f, 1.0f, 1.0f };
 
             if (!inside_medium) // since this brdf loses some energy, it makes the glass look too dark due to the many bounces
@@ -182,30 +196,76 @@ __device__ Vec3D get_scattered_light(Vec3D& ray_direction, bool& inside_medium, 
                 weight = specular_weight(incoming_direction, outgoing_direction, half_vector, sample.normal, sample.roughness);
             }
 
-            return weight;
+            return { { sample.position, outgoing_direction }, weight, SPECULAR };
         }
-        else if(sample.transparent) // refraction
+        else if(sample.transparent) // transmission
         {
             inside_medium = !inside_medium;
 
             Vec3D incoming_direction = ray_direction;
             Vec3D outgoing_direction = refraction_direction(incoming_direction, half_vector, n1, n2);
 
-            ray_direction = outgoing_direction;
+            Vec3D weight = specular_weight(incoming_direction, outgoing_direction, half_vector, sample.normal, sample.roughness) * sample.albedo;
 
-            return specular_weight(incoming_direction, outgoing_direction, half_vector, sample.normal, sample.roughness) * sample.albedo;
+            return { { sample.position, outgoing_direction }, weight, TRANSMISSION };
         }
         else // diffuse reflection
         {
-            ray_direction = diffuse_direction(g_buffer, pixel_index, sample.normal, sample.tangent, sample.bitangent);
+            Vec3D outgoing_direction = diffuse_direction(g_buffer, pixel_index, sample.normal, sample.tangent, sample.bitangent);
 
-            return sample.albedo;
+            return { { sample.position, outgoing_direction }, sample.albedo, DIFFUSE };
         }
     }
 }
 
 
-__device__ void trace_path(G_Buffer g_buffer, Ray ray, Scene scene, int pixel_index)
+__device__ Vec3D random_point_in_triangle(Triangle triangle, G_Buffer g_buffer, int pixel_index)
+{
+    float x = get_random_unilateral(g_buffer, pixel_index);
+    float y = get_random_unilateral(g_buffer, pixel_index);
+
+    float sqrt_x = sqrtf(x);
+    float u = 1.0f - sqrt_x;
+    float v = y * sqrt_x;
+    float w = 1.0f - u - v;
+
+    return u * triangle.p1 + v * triangle.p2 + w * triangle.p3;
+}
+
+__device__ Vec3D sample_direct_light(Vec3D ray_position, Vec3D normal, Scene scene, G_Buffer g_buffer, int pixel_index)
+{
+    int light_index = scene.light_indicies[int(get_random_unilateral(g_buffer, pixel_index) * scene.light_count)];
+
+    Triangle light = scene.triangles[light_index];
+
+
+    Vec3D random_point = random_point_in_triangle(light, g_buffer, pixel_index);
+
+    Ray shadow_ray = { ray_position, normalize(random_point - ray_position) };
+
+
+    Sample sample;
+
+    if (trace_ray(shadow_ray, scene, sample))
+    {
+        if (sample.triangle_index == light_index)
+        {
+            float light_area = 0.5 * magnitude(cross(light.p2 - light.p1, light.p3 - light.p1));
+
+            float distance_squared = magnitude_squared(random_point - ray_position);
+
+            float cosine_term_1 = fmaxf(-dot(shadow_ray.direction, sample.normal), 0.0f);
+            float cosine_term_2 = fmaxf(dot(shadow_ray.direction, normal), 0.0f);
+
+            return sample.emittance * (light_area * scene.light_count * cosine_term_1 * cosine_term_2 / fmaxf(distance_squared * PI, 0.001f));
+        }
+    }
+
+    return ZERO_VEC3D;
+}
+
+
+__device__ void trace_path(G_Buffer g_buffer, Ray primary_ray, Scene scene, int pixel_index)
 {
     Vec3D outgoing_light = ZERO_VEC3D;
 
@@ -214,18 +274,31 @@ __device__ void trace_path(G_Buffer g_buffer, Ray ray, Scene scene, int pixel_in
     bool inside_medium = false;
 
 
+    Scattering_Event scattering_event = { primary_ray, ZERO_VEC3D, PRIMARY };
+
     while(true)
     {
         Sample sample;
 
-        if (trace_ray(ray, scene, sample))
+        if (trace_ray(scattering_event.ray, scene, sample))
         {
-            outgoing_light += sample.emittance * throughput;
+            if (scattering_event.type != DIFFUSE)
+            {
+                outgoing_light += sample.emittance * throughput;
+            }
 
-            ray.position = sample.position;
+
+            scattering_event = get_scattered_light(scattering_event.ray.direction, inside_medium, g_buffer, pixel_index, sample);
+
+            throughput *= scattering_event.weight;
 
 
-            throughput *= get_scattered_light(ray.direction, inside_medium, g_buffer, pixel_index, sample);
+            if (scattering_event.type == DIFFUSE)
+            {
+                Vec3D direct_light = sample_direct_light(scattering_event.ray.position, sample.normal, scene, g_buffer, pixel_index);
+
+                outgoing_light += direct_light * throughput;
+            }
         }
         else
         {
@@ -247,6 +320,8 @@ __device__ void trace_path(G_Buffer g_buffer, Ray ray, Scene scene, int pixel_in
 
 
     g_buffer.frame_buffer[pixel_index] += outgoing_light;
+    g_buffer.squared_luminance[pixel_index] += square(luminance(outgoing_light));
+    ++g_buffer.sample_count[pixel_index];
 }
 
 __device__ Vec3D random_point_in_pinhole(Camera camera, G_Buffer g_buffer, int pixel_index)
@@ -269,20 +344,52 @@ __global__ void path_tracing(G_Buffer g_buffer, Scene scene, Camera camera)
     {
         for (int x = screen_cell_x; x < screen_cell_x + SCREEN_CELL_W; ++x)
         {
+            bool run_sample = false;
+
+
             int pixel_index = y * SCREEN_W + x;
 
+            int sample_count = g_buffer.sample_count[pixel_index];
 
-            float tan_half_FOV = tanf(camera.FOV / 2);
+            if (sample_count < MIN_SAMPLES)
+            {
+                run_sample = true;
+            }
+            else
+            {
+                float total_luminance = luminance(g_buffer.frame_buffer[pixel_index]);
 
-            float random_offset_x = get_random_unilateral(g_buffer, pixel_index);
-            float random_offset_y = get_random_unilateral(g_buffer, pixel_index);
-
-            Vec3D ray_direction = normalize({ tan_half_FOV * (x + random_offset_x - SCREEN_W / 2) / float(SCREEN_W / 2), tan_half_FOV * (y + random_offset_y - SCREEN_H / 2) / float(SCREEN_W / 2), 1.0f});
-
-            ray_direction = camera.rotation() * ray_direction;
+                float total_squared_luminance = g_buffer.squared_luminance[pixel_index];
 
 
-            trace_path(g_buffer, { random_point_in_pinhole(camera, g_buffer, pixel_index), ray_direction }, scene, pixel_index);
+                float mean_luminance = total_luminance / sample_count;
+
+                float variance = (total_squared_luminance - square(total_luminance) / sample_count) / (sample_count - 1);
+
+
+                float i = sqrtf(2.0f) * erfinvf(1.0f - MAX_TOLERANCE) * sqrtf(variance / sample_count);
+
+                if (i > mean_luminance * MAX_TOLERANCE)
+                {
+                    run_sample = true;
+                }
+            }
+
+
+            if (run_sample)
+            {
+                float tan_half_FOV = tanf(camera.FOV / 2);
+
+                float random_offset_x = get_random_unilateral(g_buffer, pixel_index);
+                float random_offset_y = get_random_unilateral(g_buffer, pixel_index);
+
+                Vec3D ray_direction = normalize({ tan_half_FOV * (x + random_offset_x - SCREEN_W / 2) / float(SCREEN_W / 2), tan_half_FOV * (y + random_offset_y - SCREEN_H / 2) / float(SCREEN_W / 2), 1.0f });
+
+                ray_direction = camera.rotation() * ray_direction;
+
+
+                trace_path(g_buffer, { random_point_in_pinhole(camera, g_buffer, pixel_index), ray_direction }, scene, pixel_index);
+            }
         }
     }
 }

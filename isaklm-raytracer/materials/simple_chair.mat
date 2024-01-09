@@ -1,0 +1,5 @@
+material wood
+albedo 1.0 1.0 1.0
+roughness 0.2
+n 1.5
+texture textures/simple_chair.png

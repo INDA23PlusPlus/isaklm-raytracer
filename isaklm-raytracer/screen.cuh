@@ -15,11 +15,20 @@
 struct G_Buffer
 {
 	Vec3D* frame_buffer;
+	float* squared_luminance;
+	int* sample_count;
 	uint32_t* random_numbers;
 
 	G_Buffer()
 	{
 		cudaMalloc(&frame_buffer, SCREEN_W * SCREEN_H * sizeof(Vec3D));
+		cudaMalloc(&frame_buffer, SCREEN_W * SCREEN_H * sizeof(Vec3D));
+
+		cudaMalloc(&squared_luminance, SCREEN_W * SCREEN_H * sizeof(float));
+		cudaMalloc(&squared_luminance, SCREEN_W * SCREEN_H * sizeof(float));
+
+		cudaMalloc(&sample_count, SCREEN_W * SCREEN_H * sizeof(int));
+		cudaMalloc(&sample_count, SCREEN_W * SCREEN_H * sizeof(int));
 
 
 		uint32_t* initial_seeds = (uint32_t*)malloc(SCREEN_W * SCREEN_H * sizeof(uint32_t));

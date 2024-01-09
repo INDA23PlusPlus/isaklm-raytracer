@@ -1,0 +1,5 @@
+material table
+albedo 1.0 1.0 1.0
+roughness 0.1
+n 1.5
+texture textures/table.png

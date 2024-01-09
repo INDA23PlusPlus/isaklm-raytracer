@@ -8,4 +8,10 @@
 
 #define MAX_COLOR_CHANNEL 255
 
-#define KD_TREE_DEPTH 17
+#define KD_TREE_DEPTH 19
+
+#define MIN_SAMPLES 100
+
+#define MAX_SAMPLES 5000
+
+#define MAX_TOLERANCE 0.05f

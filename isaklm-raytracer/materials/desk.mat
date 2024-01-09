@@ -1,0 +1,5 @@
+material desk
+albedo 1.0 1.0 1.0
+roughness 0.05
+n 1.55
+texture textures/desk.jpg

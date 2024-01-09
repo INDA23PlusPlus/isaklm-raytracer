@@ -85,13 +85,16 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="create_kd_tree.cuh" />
+    <ClInclude Include="create_models.cuh" />
     <ClInclude Include="create_scene.cuh" />
+    <ClInclude Include="lodepng\lodepng.h" />
     <ClInclude Include="macros.h" />
     <ClInclude Include="math_library.cuh" />
     <ClInclude Include="mesh_loading.cuh" />
     <ClInclude Include="path_tracing.cuh" />
     <ClInclude Include="camera.cuh" />
     <ClInclude Include="render.cuh" />
+    <ClInclude Include="save_render.cuh" />
     <ClInclude Include="scene.cuh" />
     <ClInclude Include="screen.cuh" />
     <ClInclude Include="stb_image\stb_image.h" />
@@ -105,12 +108,33 @@
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
       <DeploymentContent Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</DeploymentContent>
     </Image>
-    <Image Include="textures\sky.jpg" />
-    <Image Include="textures\wall.png" />
-    <Image Include="textures\wood_floor.jpg" />
+    <Image Include="textures\chair_textile.png" />
+    <Image Include="textures\chair_wood.jpg" />
+    <Image Include="textures\desk.jpg" />
+    <Image Include="textures\emissive_gradient.png" />
+    <Image Include="textures\house.png" />
+    <Image Include="textures\simple_chair.png" />
+    <Image Include="textures\table.png" />
+    <Image Include="textures\wall.jpg" />
+    <Image Include="textures\wood_floor.png" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="lodepng\lodepng.cpp" />
     <ClCompile Include="stb_image\stb_image.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="materials\chair.mat" />
+    <None Include="materials\cheburashka.mat" />
+    <None Include="materials\desk.mat" />
+    <None Include="materials\dragon.mat" />
+    <None Include="materials\glass.mat" />
+    <None Include="materials\happy_buddha.mat" />
+    <None Include="materials\horse.mat" />
+    <None Include="materials\house.mat" />
+    <None Include="materials\outlet.mat" />
+    <None Include="materials\room.mat" />
+    <None Include="materials\simple_chair.mat" />
+    <None Include="materials\table.mat" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

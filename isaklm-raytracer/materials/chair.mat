@@ -1,0 +1,18 @@
+﻿
+material wood
+albedo 0.9 0.9 0.9
+roughness 0.2
+n 1.6
+texture textures/chair_wood.jpg
+
+material textile
+albedo 1.0 1.0 1.0
+roughness 0.6
+n 1.3
+texture textures/chair_textile.png
+
+material aluminum
+albedo 0.972 0.96 0.915
+roughness 0.02
+n 1.1978
+k 7.0488

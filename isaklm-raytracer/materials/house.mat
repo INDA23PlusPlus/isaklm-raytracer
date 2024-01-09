@@ -1,0 +1,5 @@
+material house
+albedo 1.0 1.0 1.0
+texture textures/house.png
+roughness 0.3
+n 1.25
