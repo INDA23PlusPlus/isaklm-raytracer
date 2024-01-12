@@ -116,6 +116,7 @@
     <Image Include="textures\simple_chair.png" />
     <Image Include="textures\table.png" />
     <Image Include="textures\wall.jpg" />
+    <Image Include="textures\wall.png" />
     <Image Include="textures\wood_floor.png" />
   </ItemGroup>
   <ItemGroup>

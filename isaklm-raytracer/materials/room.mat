@@ -2,7 +2,7 @@ material walls
 albedo 1.0 1.0 1.0
 roughness 0.2
 n 1.25
-texture textures/wall.jpg
+texture textures/wall.png
 
 material floor
 albedo 1.0 1.0 1.0

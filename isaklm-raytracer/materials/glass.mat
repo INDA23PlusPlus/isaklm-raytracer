@@ -1,5 +1,5 @@
 material glass
-albedo 0.97 0.97 0.97
-roughness 0.005
+albedo 0.995 0.995 0.995
+roughness 0.001
 n 1.51
 transparent
